@@ -110,16 +110,6 @@ Real_Time_GenAI_TelePrompter/
 -   Use Debug Mode if you have issues with audio or transcription.
 -   For best AI suggestions, provide your OpenAI API key in the sidebar.
 
-## 📝 `requirements.txt`
-```
-  streamlit
-  openai
-  whisper
-  sounddevice
-  numpy
-  wave
-```
-
   ## ⭐ Acknowledgements
 
 -   [OpenAI Whisper](https://github.com/openai/whisper)
