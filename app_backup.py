@@ -22,8 +22,12 @@ if "last_record_time" not in st.session_state:
     st.session_state.last_record_time = 0
 if "start_time" not in st.session_state:
     st.session_state.start_time = None
+if "enable_translation" not in st.session_state:
+    st.session_state.enable_translation = False
 if "source_language" not in st.session_state:
     st.session_state.source_language = "auto"
+if "target_language" not in st.session_state:
+    st.session_state.target_language = "en"
 if "openai_api_key" not in st.session_state:
     st.session_state.openai_api_key = ""
 if "use_llm" not in st.session_state:
@@ -31,9 +35,10 @@ if "use_llm" not in st.session_state:
 if "debug_mode" not in st.session_state:
     st.session_state.debug_mode = False
 
-# Try to import Whisper
+# Try to import libraries
 try:
     import whisper
+    # Try to load model with error handling
     with st.spinner("Loading Whisper model..."):
         WHISPER_MODEL = whisper.load_model("base")  
     LOCAL_WHISPER_AVAILABLE = True
@@ -43,12 +48,86 @@ except Exception as e:
     WHISPER_MODEL = None
     st.error(f"❌ Whisper loading error: {e}")
 
-# Try to import OpenAI
-try:
+# Around line 590-595, replace with:
+
+                    if transcript:
+                        # Show success message
+                        mode = "GPT-4o" if OPENAI_AVAILABLE else "Rule-based"
+                        st.success(f"✅ Transcribed ({mode}): {transcript[:50]}{'...' if len(transcript) > 50 else ''}")
+                        
+                        # Add to transcript
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        entry = {
+                            "timestamp": timestamp,
+                            "original": transcript,
+                            "language": detected_lang
+                        }
+                        st.session_state.transcript.append(entry)
+                        
+                        # Generate suggestions using original transcript
+                        suggestion_text = transcript                        # Around line 580-620, replace the entire processing section:
+                        
+                                        # Process transcript
+                                        if audio is not None:
+                                            # Save audio to temporary file
+                                            temp_filename = f"temp_audio_{int(time.time())}.wav"
+                                            with wave.open(temp_filename, 'wb') as wf:
+                                                wf.setnchannels(1)
+                                                wf.setsampwidth(2)
+                                                wf.setframerate(16000)
+                                                wf.writeframes((audio * 32767).astype(np.int16).tobytes())
+                                            
+                                            # Transcribe
+                                            transcript, detected_lang = transcribe_audio(temp_filename)
+                                            
+                                            # Clean up temp file
+                                            try:
+                                                os.remove(temp_filename)
+                                            except:
+                                                pass
+                                            
+                                            if transcript:
+                                                # Show success message
+                                                mode = "GPT-4o" if OPENAI_AVAILABLE else "Rule-based"
+                                                st.success(f"✅ Transcribed: {transcript[:50]}{'...' if len(transcript) > 50 else ''}")
+                                                
+                                                # Add to transcript
+                                                timestamp = datetime.now().strftime("%H:%M:%S")
+                                                entry = {
+                                                    "timestamp": timestamp,
+                                                    "original": transcript,
+                                                    "language": detected_lang
+                                                }
+                                                st.session_state.transcript.append(entry)
+                                                
+                                                # Generate AI suggestions
+                                                if OPENAI_AVAILABLE:
+                                                    ai_suggestion = get_ai_suggestion(transcript)
+                                                    if ai_suggestion:
+                                                        st.session_state.suggestions.append({
+                                                            "timestamp": timestamp,
+                                                            "suggestion": ai_suggestion,
+                                                            "type": "GPT-4o"
+                                                        })
+                                                
+                                                # Always add rule-based suggestions as backup
+                                                rule_suggestions = get_sales_suggestion(transcript)
+                                                for suggestion in rule_suggestions:
+                                                    st.session_state.suggestions.append({
+                                                        "timestamp": timestamp,
+                                                        "suggestion": suggestion,
+                                                        "type": "Rule-based"
+                                                    })
+                                            
+                                            else:
+                                                st.warning("⚠️ No speech detected. Try speaking louder or closer to the microphone.")
+                                        
+                                        else:
+                                            st.error("❌ Failed to record audio. Check your microphone permissions.")try:
     import openai
     LLM_AVAILABLE = True
     
-    # Check for API key
+    # Check for API key from multiple sources
     api_key = None
     try:
         api_key = st.secrets.get("OPENAI_API_KEY")
@@ -74,7 +153,8 @@ except ImportError:
 # Page config
 st.set_page_config(
     page_title="🎙️ Real-Time GenAI TelePrompter",
-    layout="wide"
+    layout="wide",
+    # page_icon="🎙️"
 )
 
 # Styling
@@ -134,6 +214,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Check if Whisper is available
+if not LOCAL_WHISPER_AVAILABLE:
+    st.error("❌ Whisper not available. Install with: `pip install openai-whisper`")
+    st.stop()
+
 def check_audio_devices():
     """Check available audio devices"""
     try:
@@ -147,9 +232,10 @@ def check_audio_devices():
 def get_llm_suggestion(text, conversation_history=""):
     """Generate AI suggestions using OpenAI GPT-4o"""
     if not LLM_ENABLED or not text.strip():
-        return get_sales_suggestion(text)
+        return get_sales_suggestion(text)  # Fallback to rule-based
     
     try:
+        # System prompt for sales coaching
         system_prompt = """You are an expert AI sales coach assistant helping a sales representative during a live call. 
 
 Based on the conversation transcript, provide 1-2 SHORT, actionable suggestions to help the sales rep. 
@@ -169,8 +255,10 @@ Focus on:
 
 Return only the suggestion(s), no explanation."""
 
+        # Prepare the conversation context
         full_context = conversation_history + "\n\nLatest: " + text if conversation_history else text
         
+        # Call OpenAI API
         response = openai.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -179,7 +267,7 @@ Return only the suggestion(s), no explanation."""
             ],
             max_tokens=100,
             temperature=0.7,
-            timeout=5
+            timeout=5  # 5 second timeout for real-time needs
         )
         
         suggestion = response.choices[0].message.content.strip()
@@ -187,26 +275,31 @@ Return only the suggestion(s), no explanation."""
         
     except Exception as e:
         st.warning(f"AI suggestion error: {e}")
+        # Fallback to rule-based suggestions
         return get_sales_suggestion(text)
 
 def record_audio(duration=5, sample_rate=16000):
     """Record audio with improved settings"""
     try:
+        # Use higher quality settings
         audio_data = sd.rec(
             int(duration * sample_rate), 
             samplerate=sample_rate, 
             channels=1, 
             dtype='float32',
-            device=None,
-            blocking=True
+            device=None,  # Use default device
+            blocking=True  # Wait for recording to complete
         )
         
+        # Normalize audio
         audio_data = audio_data.flatten()
-        max_amplitude = np.max(np.abs(audio_data))
         
+        # Check if audio was actually recorded
+        max_amplitude = np.max(np.abs(audio_data))
         if st.session_state.debug_mode:
             st.write(f"🎤 Audio recorded: duration={duration}s, max_amplitude={max_amplitude:.4f}")
         
+        # Require minimum audio level
         if max_amplitude < 0.001:
             st.warning("⚠️ Very quiet audio detected. Speak louder or check microphone.")
             return None
@@ -218,8 +311,9 @@ def record_audio(duration=5, sample_rate=16000):
         return None
 
 def save_audio(audio, filename, samplerate=16000):
-    """Save audio to WAV file"""
+    """Save audio to WAV file with validation"""
     try:
+        # Ensure audio is not empty
         if len(audio) == 0:
             st.error("Empty audio buffer")
             return False
@@ -228,10 +322,12 @@ def save_audio(audio, filename, samplerate=16000):
             wf.setnchannels(1)
             wf.setsampwidth(2)
             wf.setframerate(samplerate)
+            # Convert to 16-bit integers
             audio_int16 = (audio * 32767).astype(np.int16)
             wf.writeframes(audio_int16.tobytes())
         
-        if os.path.exists(filename) and os.path.getsize(filename) > 44:
+        # Verify file was created and has content
+        if os.path.exists(filename) and os.path.getsize(filename) > 44:  # WAV header is 44 bytes
             if st.session_state.debug_mode:
                 st.write(f"💾 Audio saved: {os.path.getsize(filename)} bytes")
             return True
@@ -245,21 +341,23 @@ def save_audio(audio, filename, samplerate=16000):
 
 def transcribe_audio(audio_file_path):
     """Transcribe audio with better settings"""
-    if not LOCAL_WHISPER_AVAILABLE:
+    if not LOCAL_WHISPER_AVAILABLE:  # ✅ Fixed variable name
         return "Whisper not available", "unknown"
     
     try:
+        # Use the pre-loaded model
         model = WHISPER_MODEL
         
+        # Transcribe with better parameters
         result = model.transcribe(
             audio_file_path,
             language=st.session_state.source_language if st.session_state.source_language != "auto" else None,
             task="transcribe",
-            temperature=0.0,
+            temperature=0.0,  # More deterministic
             best_of=1,
             beam_size=1,
             word_timestamps=False,
-            initial_prompt="This is a sales conversation or business meeting."
+            initial_prompt="This is a sales conversation or business meeting."  # Context hint
         )
         
         text = result["text"].strip()
@@ -269,6 +367,7 @@ def transcribe_audio(audio_file_path):
             st.write(f"🎤 Transcribed: '{text}' (language: {detected_language})")
             st.write(f"🔍 Confidence indicators: segments={len(result.get('segments', []))}")
         
+        # Filter out very short or nonsensical results
         if len(text) < 3:
             if st.session_state.debug_mode:
                 st.write("⚠️ Transcription too short, skipping")
@@ -283,8 +382,9 @@ def transcribe_audio(audio_file_path):
         return f"Transcription error: {e}", "unknown"
 
 def get_sales_suggestion(text):
-    """Generate sales coaching suggestions (rule-based)"""
+    """Generate sales coaching suggestions (rule-based fallback)"""
     text_lower = text.lower()
+    
     suggestions = []
     
     # Price/Budget related
@@ -328,11 +428,6 @@ def get_sales_suggestion(text):
         ])]
     
     return suggestions
-
-# Check if Whisper is available
-if not LOCAL_WHISPER_AVAILABLE:
-    st.error("❌ Whisper not available. Install with: `pip install openai-whisper`")
-    st.stop()
 
 # Sidebar: AI Coach Settings
 with st.sidebar:
@@ -380,6 +475,7 @@ with st.sidebar:
         if LLM_ENABLED:
             st.success("✅ GPT-4o Ready")
             
+            # Toggle for using LLM
             use_llm = st.checkbox(
                 "🤖 Use AI Suggestions",
                 value=st.session_state.use_llm,
@@ -414,7 +510,7 @@ with st.sidebar:
 # Header
 st.markdown("""
 ## 🎤 Real-Time GenAI TelePrompter
-**AI Sales Coach with Live Transcription ✨**
+**AI Coach with Live Transcription and Translation✨**
 
 ### 🤖 AI Coach Configuration
 """)
@@ -528,7 +624,7 @@ if st.session_state.running:
                     transcript, detected_lang = transcribe_audio(temp_filename)
                     
                     if transcript:
-                        # Add to transcript
+                        # Add to transcript (NO TRANSLATION)
                         timestamp = datetime.now().strftime("%H:%M:%S")
                         entry = {
                             "timestamp": timestamp,
@@ -537,22 +633,25 @@ if st.session_state.running:
                         }
                         st.session_state.transcript.append(entry)
                         
+                        # Generate suggestions using original transcript
+                        suggestion_text = transcript
+                        
                         # Build conversation history for AI context
                         conversation_history = ""
                         if st.session_state.use_llm and LLM_ENABLED and len(st.session_state.transcript) > 1:
                             recent_entries = st.session_state.transcript[-3:]
                             history_parts = []
-                            for h_entry in recent_entries[:-1]:
-                                h_text = h_entry.get('original', '')
+                            for h_entry in recent_entries[:-1]:  # Exclude current entry
+                                h_text = h_entry.get('translated', h_entry.get('original', ''))
                                 if h_text:
                                     history_parts.append(h_text)
                             conversation_history = " ".join(history_parts)
                         
                         # Generate suggestions
                         if st.session_state.use_llm and LLM_ENABLED:
-                            suggestions = get_llm_suggestion(transcript, conversation_history)
+                            suggestions = get_llm_suggestion(suggestion_text, conversation_history)
                         else:
-                            suggestions = get_sales_suggestion(transcript)
+                            suggestions = get_sales_suggestion(suggestion_text)
                         
                         # Add suggestions to session state
                         for suggestion in suggestions:
@@ -640,6 +739,7 @@ if st.session_state.debug_mode and st.session_state.running:
         st.markdown('<div class="debug-info">', unsafe_allow_html=True)
         st.markdown("**System Status:**")
         st.markdown(f"- Whisper Model: {'✅ Loaded' if LOCAL_WHISPER_AVAILABLE else '❌ Not Available'}")
+        st.markdown(f"- Translation: {'✅ Available' if TRANSLATION_AVAILABLE else '❌ Not Available'}")
         st.markdown(f"- OpenAI: {'✅ Connected' if LLM_ENABLED else '❌ Not Connected'}")
         st.markdown('</div>', unsafe_allow_html=True)
     
@@ -691,7 +791,7 @@ if st.session_state.transcript and not st.session_state.running:
         ]
         
         for entry in st.session_state.transcript:
-            txt_lines.append(f"[{entry['timestamp']}] {entry['original']}")
+            txt_lines.append(f"[{entry['timestamp']}] {entry.get('translated', entry['original'])}")
         
         txt_lines.extend([
             "",
