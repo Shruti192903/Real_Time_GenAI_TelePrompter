@@ -32,11 +32,9 @@ A cutting-edge AI application that provides real-time speech transcription and i
 
 ---
 
-## 📸 Screenshots
+## 📸 Main Interface
 
-<!-- Example:
-![Main Interface](screenshots/Interface.png)
--->
+![Main Interface](Interface.png)
 
 ---
 
