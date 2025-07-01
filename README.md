@@ -34,10 +34,8 @@ A cutting-edge AI application that provides real-time speech transcription and i
 
 ## 📸 Screenshots
 
-<!-- Add screenshots of your app here for better illustration! -->
 <!-- Example:
-![Main Interface](screenshots/main_interface.png)
-![Debug Mode](screenshots/debug_mode.png)
+![Main Interface](screenshots/Interface.png)
 -->
 
 ---
