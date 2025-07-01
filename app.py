@@ -321,6 +321,8 @@ def transcribe_audio(filename):
 def translate_text(text, target_lang="en", source_lang="auto"):
     """Translate text using GoogleTranslator"""
     if not TRANSLATION_AVAILABLE or not text.strip():
+        if st.session_state.debug_mode:
+            st.write(f"🔄 Translation skipped: available={TRANSLATION_AVAILABLE}, text='{text[:50]}...'")
         return text
     
     try:
@@ -330,9 +332,15 @@ def translate_text(text, target_lang="en", source_lang="auto"):
             translator = GoogleTranslator(source=source_lang, target=target_lang)
         
         translated = translator.translate(text)
+        
+        if st.session_state.debug_mode:
+            st.write(f"🌍 Translation: '{text}' -> '{translated}' ({source_lang} to {target_lang})")
+        
         return translated.strip() if translated else text
     except Exception as e:
         st.warning(f"Translation error: {e}")
+        if st.session_state.debug_mode:
+            st.write(f"❌ Translation failed: {e}")
         return text
 
 def get_sales_suggestion(text):
@@ -464,7 +472,7 @@ with st.sidebar:
 # Header
 st.markdown("""
 ## 🎤 Real-Time GenAI TelePrompter
-**AI Sales Coach with Live Transcription and Translation✨**
+**AI Coach with Live Transcription and Translation✨**
 
 ### 🤖 AI Coach Configuration
 """)
@@ -686,11 +694,16 @@ with col1:
             st.markdown(f'<div class="transcript-entry">', unsafe_allow_html=True)
             st.markdown(f"**🕒 {entry['timestamp']}** ({entry['language']})")
             
-            if entry['translation_enabled'] and entry['translated'] != entry['original']:
-                st.markdown(f"**Original:** {entry['original']}")
-                st.markdown(f"**Translated:** {entry['translated']}")
-            else:
-                st.markdown(f"**Text:** {entry['original']}")
+            # Show original text
+            st.markdown(f"**Original:** {entry['original']}")
+            
+            # Show translated text if translation was enabled and text is different
+            if entry.get('translation_enabled', False) and TRANSLATION_AVAILABLE:
+                translated = entry.get('translated', '')
+                if translated and translated.strip() != entry['original'].strip():
+                    st.markdown(f"**Translated:** {translated}")
+                else:
+                    st.markdown(f"**Translated:** {entry['original']} *(same as original)*")
             
             st.markdown('</div>', unsafe_allow_html=True)
         
