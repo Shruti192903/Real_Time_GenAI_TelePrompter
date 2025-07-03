@@ -17,7 +17,7 @@ A cutting-edge AI application that provides real-time speech transcription and i
 
 - **🎤 Real-Time Speech Transcription:** High-accuracy speech-to-text using OpenAI Whisper.
 - **🤖 AI-Powered Coaching:** GPT-4o generates contextual sales suggestions.
-- **🌍 Multi-Language Support:** 13+ languages with auto-detection.
+- **🌍 Multi-Language Support:** Supports multiple languages with auto-detection.
 - **📱 Professional UI:** Dark-themed, responsive web interface.
 - **🔄 Real-Time Processing:** 5-second audio cycles for immediate feedback.
 
